@@ -21,10 +21,14 @@ const {
 const {
     apis: {
         discordHttpGateway: {
-        redisUri: serviceRedisUri
+            rabbitmqUri
         }
     },
+    bot: {
+        clientId
+    },
     datadogApiKey,
+    datadogServiceName
 } = config
 
 const {
@@ -33,23 +37,36 @@ const {
 
 monitoRssConfig.set(config)
 
-const producer = new RESTProducer(serviceRedisUri)
-const deliveryPipeline = new DeliveryPipeline(null, producer)
+
+const logger = setupLogger({
+    env: process.env.NODE_ENV,
+    datadog: {
+        apiKey: datadogApiKey,
+        service: datadogServiceName || 'monitorss-feed-fetcher'
+    }
+})
+
+const producer = new RESTProducer(rabbitmqUri, {
+    clientId
+})
+
+producer.on('error', (err) => {
+    logger.error(`RESTProducer error (${err.message})`)
+    logger.datadog(`RESTProducer error (${err.message})`, {
+        stack: err.stack
+    })
+})
 
 async function main() {
-    const logger = setupLogger({
-        env: process.env.NODE_ENV,
-        datadog: {
-            apiKey: datadogApiKey,
-            service: 'monitorss-feed-fetcher'
-        }
-    })
+    await producer.initialize()
+    const deliveryPipeline = new DeliveryPipeline(null, producer)
+
     await MonitoRSS.setupModels(config.database.uri)
 
     scripts.runSchedule(config, {
         schedules: customSchedules
     }).then((scheduleManager) => {
-        scheduleManager.on('newArticle', newArticle => {
+        scheduleManager.on('newArticle', async newArticle => {
             const {
                 feedObject,
                 article
@@ -58,9 +75,7 @@ async function main() {
                 feedObject
             })
             deliveryPipeline.deliver(newArticle, null, true).catch((err) => {
-                if (err instanceof BadRequestError) {
-                    disableFeed(err.feedId, article.link)
-                }
+                logger.datadog(`Failed to deliver article (${err.message})`, feedObject)
             })
         })
         
@@ -80,28 +95,6 @@ async function main() {
             })
         })
     })
-}
-
-async function disableFeed(feedId, articleLink) {
-    try {
-        const feed = await Feed.get(feedId)
-        if (feed.disabled) {
-            return
-        }
-        console.log(`Disabling feed ${feedId} due to bad format`)
-        if (!feed) {
-            console.warn(`Unable to disable feed ${feedId} since it doesn't exist`)
-            return
-        }
-        await feed.disable(Feed.DISABLE_REASONS.BAD_FORMAT)
-        /**
-         * @type {import('monitorss').Profile|null}
-         */
-        const errorMessage = `Failed to deliver article <${articleLink || 'no link available'}> for feed <${feed.url}>. The feed has now been disabled due to either bad text or bad embed. Update the text and/or embed, then test for validity to re-enable.`
-        await sendAlert(feed.guild, feed.channel, errorMessage)
-    } catch (err) {
-        console.warn(`Failed to disable feed ${feedId}`, err)
-    }
 }
 
 async function fetchChannel(channelId) {

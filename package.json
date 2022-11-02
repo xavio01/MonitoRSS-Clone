@@ -12,11 +12,12 @@
   },
   "dependencies": {
     "@monitorss/logger": "^1.1.0",
-    "monitorss": "^6.14.11",
-    "monitorss-web": "0.0.106"
+    "@synzen/discord-rest": "^0.7.0-beta.4",
+    "monitorss": "^6.14.9-beta.15",
+    "monitorss-web": "^0.0.106"
   },
   "devDependencies": {
-    "dotenv": "^8.6.0"
+    "dotenv": "^16.0.3"
   },
   "repository": {
     "type": "git",
@@ -27,6 +28,6 @@
   },
   "homepage": "https://github.com/synzen/MonitoRSS-Clone#readme",
   "engines": {
-    "node": ">=12.16"
+    "node": ">=16.0.0 <17.0.0"
   }
 }
